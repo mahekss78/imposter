@@ -71,14 +71,20 @@ export default function App() {
        setRoleAcknowledged(false); 
     };
 
+    const onConnectError = (err) => {
+      setError(`Connection failed: ${err.message}. Check backend URL.`);
+    };
+
     socket.on('join_success', onJoinSuccess);
     socket.on('error', onError);
+    socket.on('connect_error', onConnectError);
     socket.on('sync_state', onSyncState);
     socket.on('private_role', onPrivateRole);
 
     return () => {
       socket.off('join_success', onJoinSuccess); 
       socket.off('error', onError); 
+      socket.off('connect_error', onConnectError);
       socket.off('sync_state', onSyncState); 
       socket.off('private_role', onPrivateRole);
     };
@@ -182,14 +188,17 @@ function CreateGame() {
   const createRoom = () => {
     SFX.join();
     socket.auth = { isHost: true };
-    if (socket.connected) socket.disconnect();
     
-    socket.connect();
-    const onConnect = () => {
+    const triggerCreate = () => {
       socket.emit('create_room', config);
-      socket.off('connect', onConnect);
+      socket.off('connect', triggerCreate);
     };
-    socket.on('connect', onConnect);
+
+    socket.on('connect', triggerCreate);
+    if (socket.connected) {
+      socket.disconnect();
+    }
+    socket.connect();
   };
 
   const genres = ['AI', 'IT', 'Tech', 'Cybersecurity', 'Locations', 'General', 'Science', 'Movies', 'History'];
