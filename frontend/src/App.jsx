@@ -322,8 +322,8 @@ function HostView({ room }) {
   const startGame = () => { SFX.start(); socket.emit('force_start', room.id); };
 
   if (room.state === 'LOBBY_OPEN') {
-    const publicUrl = import.meta.env.VITE_PUBLIC_GAME_URL || window.location.origin;
-    const joinUrl = `${publicUrl}/${room.id}`;
+    const publicGameUrl = import.meta.env.VITE_PUBLIC_GAME_URL || (import.meta.env.DEV ? window.location.origin : 'https://imposter-two-gules.vercel.app');
+    const joinUrl = `${publicGameUrl}/${room.id}`;
     
     return (
       <div className="min-h-screen bg-[#0B0C10] p-4 md:p-8 flex items-center justify-center relative">
@@ -1028,11 +1028,14 @@ export default function App() {
   useEffect(() => {
     socket.on('join_success', (data) => {
       sessionStorage.setItem('imposter_token', data.token);
+      sessionStorage.setItem('imposter_playerId', data.playerId);
       socket.auth = { token: data.token };
+      socket.playerId = data.playerId;
     });
 
     socket.on('sync_state', (state) => {
       setRoom(prev => {
+        // preserve roleAcknowledged state
         if (prev) {
            const me = prev.players.find(p => p.id === socket.playerId);
            if (me) {
@@ -1070,8 +1073,10 @@ export default function App() {
 
   useEffect(() => {
     const token = sessionStorage.getItem('imposter_token');
+    const playerId = sessionStorage.getItem('imposter_playerId');
     if (token && !socket.connected) {
       socket.auth = { token };
+      if (playerId) socket.playerId = playerId;
       socket.connect();
       socket.emit('resume_session');
     }
