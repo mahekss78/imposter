@@ -982,6 +982,44 @@ function ChatFeed({ chat }) {
   );
 }
 
+function HostRouteWrapper({ room }) {
+  const { roomId } = useParams();
+
+  useEffect(() => {
+    if (!roomId) return;
+    
+    const joinAsHost = () => {
+      socket.emit('join_host', roomId.toUpperCase());
+    };
+
+    if (socket.connected) {
+      joinAsHost();
+    }
+    
+    socket.on('connect', joinAsHost);
+    
+    // Ensure socket tries to connect if not already connected (e.g. on refresh)
+    if (!socket.connected) {
+      socket.connect();
+    }
+    
+    return () => {
+      socket.off('connect', joinAsHost);
+    };
+  }, [roomId]);
+
+  if (!room) {
+    return (
+      <div className="min-h-screen bg-[#000000] flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  return <HostView room={room} />;
+}
+
+// Main App component
 export default function App() {
   const [room, setRoom] = useState(null);
   const [error, setError] = useState(null);
@@ -1061,7 +1099,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<HostLanding />} />
           <Route path="/create" element={<CreateGame />} />
-          <Route path="/host/:roomId" element={room ? <HostView room={room} /> : <div className="min-h-screen bg-[#0B0C10] flex items-center justify-center"><div className="w-12 h-12 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin"></div></div>} />
+          <Route path="/host/:roomId" element={<HostRouteWrapper room={room} />} />
           <Route path="/:roomId" element={room ? <PlayerView room={room} privateRole={privateRole} onAcknowledgeRole={handleAcknowledgeRole} /> : <PlayerJoin />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
