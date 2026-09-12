@@ -170,6 +170,8 @@ function HostLanding() {
             Start the Game (Host)
           </button>
         </div>
+
+        <p className="text-xs text-gray-600 mt-10">Target Backend: {import.meta.env.VITE_BACKEND_URL || 'NONE (Using Local fallback)'}</p>
       </div>
     </div>
   );
