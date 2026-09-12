@@ -3,12 +3,12 @@ const jwt = require('jsonwebtoken');
 const JWT_SECRET = 'super-secret-key-poc';
 
 const GENRES = {
-  ai: ['Neural Network', 'Algorithm', 'Data', 'Robot'],
-  it: ['Server', 'Cloud', 'Network', 'Router'],
-  tech: ['Smartphone', 'Laptop', 'Processor', 'Battery'],
-  cybersecurity: ['Firewall', 'Hacker', 'Encryption', 'Malware'],
-  locations: ['Hospital', 'School', 'Bank', 'Beach'],
-  general: ['Apple', 'Car', 'House', 'Tree']
+  ai: { 'Neural Network': 'A computing system inspired by the human brain.', 'Algorithm': 'A set of rules for solving a problem.', 'Data': 'Information processed by computers.', 'Robot': 'A machine capable of carrying out complex actions.' },
+  it: { 'Server': 'A computer that provides data to other computers.', 'Cloud': 'Servers accessed over the internet.', 'Network': 'A group of connected computers.', 'Router': 'A device that forwards data packets.' },
+  tech: { 'Smartphone': 'A mobile phone with computer features.', 'Laptop': 'A portable personal computer.', 'Processor': 'The logic circuitry that responds to and processes basic instructions.', 'Battery': 'A device containing an electric cell.' },
+  cybersecurity: { 'Firewall': 'A network security system.', 'Hacker': 'Someone who uses computers to gain unauthorized access.', 'Encryption': 'The process of converting information into code.', 'Malware': 'Software designed to disrupt or damage.' },
+  locations: { 'Hospital': 'A place for medical treatment.', 'School': 'An institution for educating children.', 'Bank': 'A financial institution.', 'Beach': 'A pebbly or sandy shore by the sea.' },
+  general: { 'Apple': 'A round fruit with red or green skin.', 'Car': 'A four-wheeled road vehicle.', 'House': 'A building for human habitation.', 'Tree': 'A woody perennial plant.' }
 };
 
 const rooms = new Map();
@@ -25,6 +25,7 @@ function createRoom(roomId, config) {
     turn: null,
     order: [],
     secretWord: '',
+    secretWordDescription: '',
     chat: [],
     votes: new Map(),
     impostersList: [],
@@ -45,18 +46,23 @@ function assignRoles(room) {
   room.impostersList = playerIds.slice(0, numImposters);
   
   const pool = GENRES[room.config.genre] || GENRES.general;
-  room.secretWord = pool[Math.floor(Math.random() * pool.length)];
+  const words = Object.keys(pool);
+  room.secretWord = words[Math.floor(Math.random() * words.length)];
+  room.secretWordDescription = pool[room.secretWord];
 
   for (const [id, player] of room.players.entries()) {
     player.score = 0;
     player.correctVotes = 0;
     player.confidencePoints = 0;
+    player.roundScores = {}; // Initialize round scores
     if (room.impostersList.includes(id)) {
       player.role = 'imposter';
       player.word = null;
+      player.wordDescription = null;
     } else {
       player.role = 'crew';
       player.word = room.secretWord;
+      player.wordDescription = room.secretWordDescription;
     }
   }
 }
@@ -81,9 +87,13 @@ function calculateScoring(room) {
     });
 
     const impPlayer = room.players.get(impId);
-    if (C === N && N > 0) impPlayer.score += 0;
-    else if (C === 0 || N === 0) impPlayer.score += maxBonus;
-    else impPlayer.score += Math.floor(maxBonus / 2);
+    let roundScore = 0;
+    if (C === N && N > 0) roundScore = 0;
+    else if (C === 0 || N === 0) roundScore = maxBonus;
+    else roundScore = Math.floor(maxBonus / 2);
+    
+    impPlayer.score += roundScore;
+    impPlayer.roundScores[round] = (impPlayer.roundScores[round] || 0) + roundScore;
   });
 
   activeCrewIds.forEach(crewId => {
@@ -91,8 +101,9 @@ function calculateScoring(room) {
     if (!v) return;
     let isCorrect = room.impostersList.includes(v.voteFor);
     
+    let roundScore = 0;
     if (isCorrect) {
-      room.players.get(crewId).score += baseCorrectScore;
+      roundScore += baseCorrectScore;
       room.players.get(crewId).correctVotes += 1;
     }
     
@@ -102,13 +113,16 @@ function calculateScoring(room) {
       else if (v.confidence >= 70) betScore = 1;
       
       if (isCorrect) {
-        room.players.get(crewId).score += betScore;
+        roundScore += betScore;
         room.players.get(crewId).confidencePoints += betScore;
       } else {
-        room.players.get(crewId).score -= betScore;
+        roundScore -= betScore;
         room.players.get(crewId).confidencePoints -= betScore;
       }
     }
+    
+    room.players.get(crewId).score += roundScore;
+    room.players.get(crewId).roundScores[round] = (room.players.get(crewId).roundScores[round] || 0) + roundScore;
   });
 }
 

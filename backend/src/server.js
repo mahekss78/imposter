@@ -68,7 +68,7 @@ io.on('connection', (socket) => {
       socket.join(socket.roomId);
       socket.emit('sync_state', getRoomState(room));
       if (room.state !== 'LOBBY_OPEN' && player.role) {
-        socket.emit('private_role', { role: player.role, word: player.word });
+        socket.emit('private_role', { role: player.role, word: player.word, wordDescription: player.wordDescription });
       }
     }
   });
@@ -81,7 +81,7 @@ io.on('connection', (socket) => {
     assignRoles(room);
     
     for (const [pId, p] of room.players.entries()) {
-      if (p.active) io.to(p.socketId).emit('private_role', { role: p.role, word: p.word });
+      if (p.active) io.to(p.socketId).emit('private_role', { role: p.role, word: p.word, wordDescription: p.wordDescription });
     }
     
     room.state = 'ROUND_CLUES';
@@ -92,6 +92,24 @@ io.on('connection', (socket) => {
       .sort(() => Math.random() - 0.5);
       
     startNextTurn(room);
+  });
+
+  
+  socket.on('player_ready_for_turn', () => {
+    const room = getRoom(socket.roomId);
+    if (!room || room.state !== 'ROUND_CLUES' || !room.turn) return;
+    if (room.turn.activePlayerId !== socket.playerId) return;
+    if (!room.turn.isWaitingForReady) return;
+
+    room.turn.isWaitingForReady = false;
+    const duration = 30000;
+    room.turn.deadline = Date.now() + duration;
+    room.turn.timeoutId = setTimeout(() => {
+      if (room.turn.turnResolved) return;
+      room.turn.turnResolved = true;
+      startNextTurn(room);
+    }, duration);
+    io.to(room.id).emit('sync_state', getRoomState(room));
   });
 
   socket.on('submit_clue', (clueText) => {
@@ -160,7 +178,7 @@ function getRoomState(room) {
     id: room.id,
     state: room.state,
     currentRound: room.currentRound,
-    turn: room.turn ? { activePlayerId: room.turn.activePlayerId, remainingMs } : null,
+    turn: room.turn ? { activePlayerId: room.turn.activePlayerId, remainingMs, isWaitingForReady: !!room.turn.isWaitingForReady } : null,
     players: Array.from(room.players.entries()).map(([id, p]) => ({ id, name: p.name, active: p.active })),
     chat: room.chat,
     config: room.config,
@@ -175,16 +193,24 @@ function startNextTurn(room) {
     startVoting(room);
     return;
   }
-  const duration = 30000;
-  room.turn = {
-    activePlayerId: nextPlayerId, deadline: Date.now() + duration, turnResolved: false,
-    timeoutId: setTimeout(() => {
-      if (room.turn.turnResolved) return;
-      room.turn.turnResolved = true;
-      startNextTurn(room);
-    }, duration)
-  };
-  io.to(room.id).emit('sync_state', getRoomState(room));
+  const isFirstTurnOfRound = (room.chat.length === 0);
+  if (isFirstTurnOfRound) {
+    room.turn = {
+      activePlayerId: nextPlayerId, deadline: null, turnResolved: false, timeoutId: null, isWaitingForReady: true
+    };
+    io.to(room.id).emit('sync_state', getRoomState(room));
+  } else {
+    const duration = 30000;
+    room.turn = {
+      activePlayerId: nextPlayerId, deadline: Date.now() + duration, turnResolved: false, isWaitingForReady: false,
+      timeoutId: setTimeout(() => {
+        if (room.turn.turnResolved) return;
+        room.turn.turnResolved = true;
+        startNextTurn(room);
+      }, duration)
+    };
+    io.to(room.id).emit('sync_state', getRoomState(room));
+  }
 }
 
 function startVoting(room) {
@@ -207,7 +233,7 @@ function endVoting(room) {
   if (room.currentRound >= room.config.rounds) {
     room.state = 'GAME_END';
     room.leaderboard = Array.from(room.players.entries()).map(([id, p]) => ({
-      id, name: p.name, role: p.role, score: p.score, correctVotes: p.correctVotes, confidencePoints: p.confidencePoints
+      id, name: p.name, role: p.role, score: p.score, correctVotes: p.correctVotes, confidencePoints: p.confidencePoints, roundScores: p.roundScores
     })).sort((a,b) => {
       if (b.score !== a.score) return b.score - a.score;
       if (b.correctVotes !== a.correctVotes) return b.correctVotes - a.correctVotes;
