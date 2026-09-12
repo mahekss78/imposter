@@ -311,7 +311,7 @@ function HostView({ gameState, timeRemaining }) {
     const joined = gameState.players.filter(p => p.active).length;
     const max = gameState.config.maxPlayers;
     const allJoined = joined >= max;
-    const joinUrl = `${window.location.origin}/${roomId}`;
+    const joinUrl = `https://imposter-two-gules.vercel.app/${roomId}`;
 
     return (
       <div className="max-w-md mx-auto w-full animate-in fade-in duration-500 mt-6">
