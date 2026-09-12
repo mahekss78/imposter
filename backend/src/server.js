@@ -6,10 +6,16 @@ const cors = require('cors');
 const { getRoom, createRoom, assignRoles, calculateScoring, verifySessionToken, generateSessionToken } = require('./roomManager');
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
 const server = http.createServer(app);
 
-const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
+const io = new Server(server, { 
+  cors: { 
+    origin: process.env.FRONTEND_URL || '*', 
+    methods: ['GET', 'POST'],
+    credentials: true
+  } 
+});
 
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
