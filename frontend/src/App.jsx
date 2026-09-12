@@ -488,15 +488,19 @@ function HostView({ room }) {
   // Host Final Leaderboard (Detailed Breakdown)
   if (room.state === 'GAME_END') {
     // Sort logic already done by server
-    const winner = room.leaderboard[0];
+    const top = room.leaderboard[0];
+    const winners = room.leaderboard.filter(p => p.score === top.score && p.correctVotes === top.correctVotes && p.confidencePoints === top.confidencePoints);
+    const titleText = winners.length > 1 ? "SHARED WIN!" : "GAME COMPLETE!";
+    const subtitleText = winners.length > 1 ? winners.map(w => w.name).join(' & ') + ' WIN!' : winners[0].name + ' WINS!';
+
     return (
       <div className="min-h-screen bg-[#0B0C10] p-4 md:p-8 flex flex-col items-center overflow-y-auto relative">
         <CosmicBackground variant="success" />
         
         <div className="z-10 w-full max-w-5xl flex flex-col items-center">
           <div className="text-amber-400 text-6xl mb-4 drop-shadow-[0_0_20px_rgba(251,191,36,0.5)]">👑</div>
-          <h1 className="text-4xl md:text-5xl font-black text-white mb-2 tracking-tighter">GAME COMPLETE!</h1>
-          <h2 className="text-2xl font-bold text-amber-400 mb-10">{winner.name} Wins!</h2>
+          <h1 className="text-4xl md:text-5xl font-black text-white mb-2 tracking-tighter">{titleText}</h1>
+          <h2 className="text-2xl font-bold text-amber-400 mb-10 uppercase">{subtitleText}</h2>
           
           <GlassCard className="w-full !p-0 overflow-hidden mb-8">
             <div className="overflow-x-auto">
@@ -792,8 +796,9 @@ function VotingView({ room }) {
 function PlayerView({ room, privateRole, onAcknowledgeRole }) {
   useEffect(() => {
     if (room.state === 'GAME_END' && room.leaderboard) {
-      const myRank = room.leaderboard.findIndex(p => p.id === socket.playerId) + 1;
-      if (myRank === 1) SFX.win();
+      const top = room.leaderboard[0];
+      const isWinner = room.leaderboard.filter(p => p.score === top.score && p.correctVotes === top.correctVotes && p.confidencePoints === top.confidencePoints).some(w => w.id === socket.playerId);
+      if (isWinner) SFX.win();
     }
   }, [room.state]);
   const myPlayer = room.players.find(p => p.id === socket.playerId);
@@ -880,8 +885,8 @@ function PlayerView({ room, privateRole, onAcknowledgeRole }) {
 
   if (room.state === 'GAME_END') {
     const me = room.leaderboard.find(p => p.id === socket.playerId);
-    const myRank = room.leaderboard.findIndex(p => p.id === socket.playerId) + 1;
-    const isWinner = myRank === 1;
+    const top = room.leaderboard[0];
+    const isWinner = room.leaderboard.filter(p => p.score === top.score && p.correctVotes === top.correctVotes && p.confidencePoints === top.confidencePoints).some(w => w.id === socket.playerId);
     
     return (
       <div className="min-h-screen bg-[#0B0C10] p-4 md:p-8 flex flex-col items-center justify-center relative">
