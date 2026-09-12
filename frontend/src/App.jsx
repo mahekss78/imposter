@@ -18,6 +18,7 @@ const SFX = {
   join: () => { playTone(440, 'sine', 0.1); setTimeout(() => playTone(880, 'sine', 0.2), 100); },
   start: () => { playTone(300, 'square', 0.1); setTimeout(() => playTone(400, 'square', 0.3), 150); },
   turn: () => playTone(600, 'triangle', 0.2),
+  win: () => { playTone(440, 'sine', 0.1); setTimeout(() => playTone(554, 'sine', 0.1), 100); setTimeout(() => playTone(659, 'sine', 0.2), 200); setTimeout(() => playTone(880, 'sine', 0.4), 400); },
   tick: () => playTone(800, 'sine', 0.05),
   alert: () => { playTone(200, 'sawtooth', 0.3); setTimeout(() => playTone(150, 'sawtooth', 0.5), 300); }
 };
@@ -318,6 +319,9 @@ function CreateGame() {
 }
 
 function HostView({ room }) {
+  useEffect(() => {
+    if (room.state === 'GAME_END') SFX.win();
+  }, [room.state]);
   const nav = useNavigate();
   const startGame = () => { SFX.start(); socket.emit('force_start', room.id); };
 
@@ -437,19 +441,9 @@ function HostView({ room }) {
               
               {room.state === 'ROUND_CLUES' && (
                 <div className="w-full h-full flex gap-6">
-                  <div className="flex-1 bg-transparent flex flex-col relative">
-                    <div className="p-3 border-b border-slate-700/50 font-bold text-slate-400 text-xs tracking-[0.2em] uppercase text-center mb-4">Evidence Log</div>
-                    <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-                      {room.chat.length === 0 ? <div className="text-slate-500 italic text-center text-sm">Waiting for first clue...</div> : 
-                        room.chat.map((c, i) => (
-                          <div key={i} className="border-l-2 border-cyan-500 pl-4 py-1">
-                            <span className="text-cyan-400 font-bold text-[10px] tracking-widest uppercase block mb-1 opacity-80">{c.senderName}</span>
-                            <span className="text-slate-200 font-mono text-sm leading-relaxed">&quot;{c.text}&quot;</span>
-                          </div>
-                        ))
-                      }
+                  <div className="flex-1 bg-transparent flex flex-col relative h-full">
+                      <ChatFeed chat={room.chat} currentRound={room.currentRound} />
                     </div>
-                  </div>
                   <div className="w-64 shrink-0 flex flex-col gap-4 border-l border-slate-800 pl-6 justify-center">
                     <div className="text-slate-500 text-[10px] font-bold uppercase tracking-widest text-center mb-2">Subject of Inquiry</div>
                     <div className="text-3xl font-black text-white truncate text-center mb-6">{activePlayer?.name || '---'}</div>
@@ -526,7 +520,6 @@ function HostView({ room }) {
                           {p.name} {idx===0 && <span className="text-amber-400 text-sm">👑</span>}
                         </td>
                         <td className="p-4 relative group">
-                          <div className="absolute inset-0 bg-[#0B0C10] flex items-center px-4 animate-out fade-out duration-1000 delay-[2000ms] fill-mode-forwards z-10 text-slate-600 font-bold text-[10px] tracking-widest uppercase">CLASSIFIED</div>
                           <span className={`relative z-0 px-3 py-1 rounded-md text-[10px] font-bold tracking-widest ${p.role === 'imposter' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'}`}>
                             {p.role.toUpperCase()}
                           </span>
@@ -612,11 +605,200 @@ function PlayerJoin() {
   );
 }
 
-function PlayerView({ room, privateRole, onAcknowledgeRole }) {
-  const myPlayer = room.players.find(p => p.id === socket.playerId);
+function RoleRevealView({ privateRole, onAcknowledgeRole }) {
+  const isImposter = privateRole?.role === 'imposter';
+  const [revealStep, setRevealStep] = useState(0);
+  useEffect(() => {
+    if (revealStep === 0) {
+      const t = setTimeout(() => { SFX.alert(); setRevealStep(1); }, 2500);
+      return () => clearTimeout(t);
+    }
+  }, [revealStep]);
+
+  if (revealStep === 0) {
+    return (
+      <div className="min-h-screen p-4 flex flex-col items-center justify-center relative bg-[#0B0C10] overflow-hidden">
+        <CosmicBackground />
+        <div className="z-10 text-center animate-pulse">
+          <div className="text-slate-500 font-bold tracking-[0.4em] mb-12 uppercase text-sm">Your Identity</div>
+          <div className="text-8xl font-black text-slate-700 animate-[bounce_1s_infinite]">?</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0B0C10] p-4 flex flex-col items-center justify-center relative overflow-hidden" onClick={onAcknowledgeRole}>
+      <CosmicBackground variant={isImposter ? "danger" : "default"} />
+      <div className="z-10 text-center space-y-8 animate-in zoom-in fade-in duration-500 max-w-sm w-full cursor-pointer">
+        <div className="text-slate-400 font-bold tracking-[0.4em] uppercase text-xs">You are</div>
+        <div className={`text-5xl md:text-6xl font-black tracking-tighter uppercase ${isImposter ? 'text-rose-500 drop-shadow-[0_0_20px_rgba(244,63,94,0.3)]' : 'text-cyan-400 drop-shadow-[0_0_20px_rgba(34,211,238,0.3)]'}`}>
+          {isImposter ? 'THE IMPOSTER' : 'CREW'}
+        </div>
+        {!isImposter && (
+          <div className="space-y-4 pt-8">
+            <div className="text-slate-500 font-bold tracking-[0.2em] text-[10px] uppercase">The Secret Word</div>
+            <div className="text-3xl font-black tracking-widest text-white uppercase">{privateRole?.word}</div>
+            {privateRole?.wordDescription && (
+              <div className="text-slate-400 text-sm italic mt-4">{privateRole.wordDescription}</div>
+            )}
+          </div>
+        )}
+        <div className="pt-12 text-slate-600 font-bold text-xs uppercase tracking-widest animate-pulse">Tap anywhere to continue</div>
+      </div>
+    </div>
+  );
+}
+
+function RoundCluesView({ room }) {
+  const isMyTurn = room.turn?.activePlayerId === socket.playerId;
+  const activePlayer = room.players.find(p => p.id === room.turn?.activePlayerId);
   const [clue, setClue] = useState('');
 
-  if (!myPlayer) return <div className="min-h-screen bg-[#0B0C10] text-white flex items-center justify-center p-6 text-center font-bold">You were removed from the room.</div>;
+  useEffect(() => {
+    if (isMyTurn && room.turn?.isWaitingForReady) socket.emit('player_ready_for_turn');
+  }, [isMyTurn, room.turn?.isWaitingForReady]);
+
+  return (
+    <div className="h-[100dvh] bg-[#0B0C10] flex flex-col relative overflow-hidden">
+      <CosmicBackground />
+      <div className="relative z-10 flex justify-between items-center p-4 bg-[#121826]/80 backdrop-blur border-b border-[#1E293B] shadow-md shrink-0">
+        <div className="flex items-center gap-2 text-slate-300 font-bold text-sm">
+          <span className="text-cyan-400">❖</span> ROUND {room.currentRound} / {room.config.rounds}
+        </div>
+        <Timer turn={room.turn} />
+      </div>
+      <div className="relative z-10 flex-1 flex flex-col md:flex-row min-h-0 w-full max-w-5xl mx-auto md:p-4 gap-4">
+        <div className="shrink-0 p-4 md:p-0 md:w-1/2 flex flex-col justify-end md:justify-center order-1">
+          <GlassCard className="w-full flex flex-col items-center text-center">
+            {isMyTurn ? (
+              <div className="w-full space-y-4 animate-in fade-in zoom-in duration-300">
+                <div className="bg-amber-500/10 text-amber-400 border border-amber-500/30 px-6 py-2 rounded-full font-black tracking-widest text-lg inline-block">YOUR TURN</div>
+                <p className="text-slate-400 text-sm">Give a clue related to the word.</p>
+                <div className="relative">
+                  <textarea 
+                    className="w-full bg-[#0F172A] border border-slate-700 rounded-xl p-4 text-white font-bold text-lg focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition-all resize-none h-24"
+                    placeholder="Type your clue here..."
+                    value={clue}
+                    onChange={e => setClue(e.target.value)}
+                    maxLength={100}
+                  />
+                  <div className="absolute bottom-3 right-3 text-xs text-slate-500 font-mono">{clue.length}/100</div>
+                </div>
+                <NeonButton onClick={() => { socket.emit('submit_clue', clue); setClue(''); }} disabled={!clue.trim() || room.turn?.turnResolved}>
+                  Submit Clue
+                </NeonButton>
+              </div>
+            ) : (
+              <div className="py-6 space-y-3 w-full">
+                <div className="flex items-center justify-center gap-3">
+                  <div className="w-10 h-10 bg-[#0F172A] rounded-full flex items-center justify-center text-xl border border-slate-700 shadow-inner">💬</div>
+                  <div className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 px-4 py-1 rounded-full font-bold tracking-widest text-sm inline-block">
+                    {activePlayer?.name}'S TURN
+                  </div>
+                </div>
+                <p className="text-slate-500 text-sm">Waiting for them to submit a clue...</p>
+              </div>
+            )}
+          </GlassCard>
+        </div>
+        <div className="flex-1 min-h-0 p-4 pt-0 md:p-0 md:w-1/2 order-2">
+          <ChatFeed chat={room.chat} currentRound={room.currentRound} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VotingView({ room }) {
+  const hasVoted = room.votesSubmitted.includes(socket.playerId);
+  const [voteFor, setVoteFor] = useState('');
+  const [confidence, setConfidence] = useState(50);
+  
+  if (hasVoted) return (
+    <div className="min-h-screen bg-[#0B0C10] flex items-center justify-center p-6 text-center relative">
+      <CosmicBackground variant="success" />
+      <GlassCard className="w-full max-w-sm space-y-6 z-10 py-10">
+        <div className="w-20 h-20 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center text-4xl border border-emerald-500/30 mx-auto">✓</div>
+        <h2 className="text-2xl font-black text-white">VOTE SUBMITTED</h2>
+        <p className="text-slate-400 font-bold text-sm">Waiting for other players...</p>
+      </GlassCard>
+    </div>
+  );
+
+  return (
+    <div className="h-[100dvh] bg-[#0B0C10] flex flex-col relative overflow-hidden">
+      <CosmicBackground variant="danger" />
+      <div className="relative z-10 flex justify-between items-center p-4 bg-[#121826]/80 backdrop-blur border-b border-[#1E293B] shrink-0">
+        <div className="text-slate-400 font-bold text-sm tracking-widest">ROUND {room.currentRound} / {room.config.rounds}</div>
+        <Timer turn={room.turn} />
+      </div>
+      <div className="relative z-10 flex-1 overflow-y-auto p-4 flex flex-col items-center">
+        <div className="w-full max-w-md space-y-6">
+          <div className="text-center py-4">
+            <h2 className="text-xl md:text-2xl font-black text-slate-300 mb-2 uppercase tracking-[0.3em]">Who do you trust?</h2>
+            <p className="text-slate-500 text-xs tracking-widest uppercase">Select your accusation</p>
+          </div>
+          <GlassCard className="!p-4 bg-[#050505]/90 border-slate-800">
+            <div className="space-y-3">
+              {room.players.map(p => {
+                if (p.id === socket.playerId) return null;
+                const isSelected = voteFor === p.id;
+                return (
+                  <button key={p.id} onClick={() => { SFX.turn(); setVoteFor(p.id); }}
+                    className={`w-full flex items-center justify-between p-5 rounded-xl border transition-all text-left group ${isSelected ? 'bg-rose-500/10 border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.1)]' : 'bg-[#0B0C10] border-slate-800 hover:border-slate-600'}`}>
+                    <div className="flex flex-col">
+                      <span className={`font-black text-xl tracking-wide ${isSelected ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'}`}>{p.name}</span>
+                      {isSelected && <span className="text-rose-500 text-[10px] font-bold tracking-[0.3em] uppercase mt-1 animate-pulse">Accusation</span>}
+                    </div>
+                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected ? 'border-rose-500' : 'border-slate-700'}`}>
+                      {isSelected && <div className="w-3 h-3 bg-rose-500 rounded-full"></div>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {room.currentRound >= 2 && voteFor && (
+              <div className="mt-8 pt-8 border-t border-slate-800 animate-in fade-in slide-in-from-bottom-2">
+                <div className="text-center mb-6">
+                  <label className="text-slate-400 font-bold text-xs uppercase tracking-[0.2em]">How confident are you?</label>
+                </div>
+                <div className="relative px-2 mb-8">
+                  <input type="range" min="50" max="100" step="10" value={confidence} onChange={e => { SFX.tick(); setConfidence(e.target.value); }}
+                    className="w-full accent-cyan-500 h-1 bg-slate-800 rounded-full appearance-none cursor-pointer relative z-10" />
+                  <div className="flex justify-between absolute left-0 w-full px-2 top-4 pointer-events-none text-[10px] font-bold text-slate-600">
+                    <span>50</span><span>60</span><span>70</span><span>80</span><span>90</span><span>100</span>
+                  </div>
+                </div>
+                <div className="text-center">
+                  <span className={`text-sm font-black tracking-[0.3em] uppercase ${confidence < 70 ? 'text-slate-400' : confidence < 90 ? 'text-cyan-400' : 'text-rose-400'}`}>
+                    {confidence < 70 ? 'Uncertain' : confidence < 90 ? 'Confident' : 'Certain'}
+                  </span>
+                </div>
+              </div>
+            )}
+          </GlassCard>
+          <div className="pt-2 pb-8 w-full">
+            <NeonButton onClick={() => { SFX.alert(); socket.emit('submit_vote', { voteFor, confidence: Number(confidence) }); }} disabled={!voteFor} variant="danger">
+              Confirm
+            </NeonButton>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlayerView({ room, privateRole, onAcknowledgeRole }) {
+  useEffect(() => {
+    if (room.state === 'GAME_END' && room.leaderboard) {
+      const myRank = room.leaderboard.findIndex(p => p.id === socket.playerId) + 1;
+      if (myRank === 1) SFX.win();
+    }
+  }, [room.state]);
+  const myPlayer = room.players.find(p => p.id === socket.playerId);
+
+  if (!myPlayer) return <div className="min-h-screen bg-[#0B0C10] text-white flex items-center justify-center p-6 text-center font-bold animate-pulse">Waiting for game connection...</div>;
 
   if (room.state === 'LOBBY_OPEN') {
     return (
@@ -628,12 +810,10 @@ function PlayerView({ room, privateRole, onAcknowledgeRole }) {
             <h2 className="text-lg font-bold text-white tracking-widest uppercase">WAITING FOR HOST</h2>
           </div>
           <p className="text-slate-400 text-sm text-center">The game will start soon...</p>
-          
           <div className="flex justify-between items-center bg-[#0F172A] p-4 rounded-xl border border-slate-800">
             <span className="text-slate-500 text-xs font-bold uppercase tracking-widest">ROOM CODE</span>
             <span className="text-xl font-black text-cyan-400">{room.id}</span>
           </div>
-
           <div className="bg-[#0F172A] p-4 rounded-xl border border-slate-800 min-h-[200px]">
             <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-4">PLAYERS ({room.players.length}/{room.config.maxPlayers})</div>
             <div className="grid grid-cols-2 gap-y-3">
@@ -647,7 +827,7 @@ function PlayerView({ room, privateRole, onAcknowledgeRole }) {
                 ) : (
                   <div key={`empty-${i}`} className="flex items-center gap-2 opacity-30">
                     <span className="text-slate-600 font-mono text-xs">{i+1}.</span>
-                    <span className="font-bold text-sm text-slate-500">—</span>
+                    <span className="font-bold text-sm text-slate-500">?"</span>
                   </div>
                 );
               })}
@@ -658,226 +838,27 @@ function PlayerView({ room, privateRole, onAcknowledgeRole }) {
     );
   }
 
-  if (!myPlayer.roleAcknowledged) {
-    const isImposter = privateRole?.role === 'imposter';
-    
-    // Self-contained Role Reveal Sequence
-    const [revealStep, setRevealStep] = useState(0);
-    useEffect(() => {
-      if (revealStep === 0) {
-        const t = setTimeout(() => { SFX.alert(); setRevealStep(1); }, 2500);
-        return () => clearTimeout(t);
-      }
-    }, [revealStep]);
-
-    if (revealStep === 0) {
+  if (room.state === 'ROLE_REVEAL') {
+    if (myPlayer.roleAcknowledged) {
       return (
-        <div className="min-h-screen p-4 flex flex-col items-center justify-center relative bg-[#0B0C10] overflow-hidden">
+        <div className="min-h-screen bg-[#0B0C10] p-4 flex flex-col items-center justify-center relative">
           <CosmicBackground />
-          <div className="z-10 text-center animate-pulse">
-            <div className="text-slate-500 font-bold tracking-[0.4em] mb-12 uppercase text-sm">Your Identity</div>
-            <div className="text-8xl font-black text-slate-700 animate-[bounce_1s_infinite]">?</div>
+          <div className="z-10 text-center space-y-6 animate-pulse">
+            <h2 className="text-xl font-bold text-white tracking-widest uppercase">WAITING FOR OTHERS</h2>
+            <p className="text-slate-400 text-sm">Players are viewing their identities...</p>
           </div>
         </div>
       );
     }
-
-    return (
-      <div className={`min-h-screen p-4 flex items-center justify-center relative bg-[#0B0C10]`}>
-        <CosmicBackground variant={isImposter ? 'danger' : 'success'} />
-        
-        <GlassCard className={`w-full max-w-sm z-10 text-center animate-in zoom-in duration-1000 flex flex-col items-center !bg-[#050505]/90 border ${isImposter ? '!border-rose-900 shadow-[0_0_80px_rgba(244,63,94,0.15)]' : '!border-emerald-900 shadow-[0_0_80px_rgba(52,211,153,0.15)]'}`}>
-          <div className={`text-[10px] font-bold tracking-[0.3em] uppercase mb-16 ${isImposter ? 'text-rose-500/50' : 'text-emerald-500/50'}`}>IDENTITY CONFIRMED</div>
-          
-          {isImposter && (
-             <div className="text-slate-400 text-xs font-bold tracking-widest uppercase mb-2">YOU ARE THE</div>
-          )}
-          
-          <h2 className={`text-4xl md:text-5xl font-black tracking-tighter mb-8 ${isImposter ? 'text-rose-500 drop-shadow-[0_0_20px_rgba(244,63,94,0.5)]' : 'text-emerald-400 drop-shadow-[0_0_20px_rgba(52,211,153,0.5)]'}`}>
-            {isImposter ? 'IMPOSTER' : 'CREW MEMBER'}
-          </h2>
-          
-          <div className={`text-[10px] font-bold tracking-[0.3em] mb-12 uppercase ${isImposter ? 'text-rose-200' : 'text-emerald-200'}`}>
-             {isImposter ? 'BLEND IN. SURVIVE.' : "FIND WHO DOESN'T BELONG"}
-          </div>
-
-          {!isImposter && privateRole?.word && (
-            <div className="w-full space-y-4 mb-8">
-              <div className="bg-[#0F172A]/50 p-6 rounded-xl border border-slate-800">
-                <div className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em] mb-2">SECRET WORD</div>
-                <div className="text-3xl font-black text-white">{privateRole.word}</div>
-              </div>
-              
-              {privateRole.wordDescription && (
-                <div className="bg-emerald-900/10 border border-emerald-500/20 p-4 rounded-xl text-left">
-                  <div className="text-emerald-500/50 text-[10px] font-bold tracking-widest uppercase mb-2">DID YOU KNOW?</div>
-                  <div className="text-emerald-100/90 text-sm font-medium leading-relaxed">{privateRole.wordDescription}</div>
-                </div>
-              )}
-            </div>
-          )}
-          
-          <NeonButton onClick={() => { SFX.start(); onAcknowledgeRole(); }} variant={isImposter ? 'danger' : 'primary'} className="mt-4">
-            Next
-          </NeonButton>
-        </GlassCard>
-      </div>
-    );
+    return <RoleRevealView privateRole={privateRole} onAcknowledgeRole={onAcknowledgeRole} />;
   }
 
   if (room.state === 'ROUND_CLUES') {
-    const isMyTurn = room.turn?.activePlayerId === socket.playerId;
-    const activePlayer = room.players.find(p => p.id === room.turn?.activePlayerId);
-
-    useEffect(() => {
-      if (isMyTurn && room.turn?.isWaitingForReady) socket.emit('player_ready_for_turn');
-    }, [isMyTurn, room.turn?.isWaitingForReady]);
-
-    return (
-      <div className="h-[100dvh] bg-[#0B0C10] flex flex-col relative overflow-hidden">
-        <CosmicBackground />
-        
-        {/* Top Bar */}
-        <div className="relative z-10 flex justify-between items-center p-4 bg-[#121826]/80 backdrop-blur border-b border-[#1E293B] shadow-md shrink-0">
-          <div className="flex items-center gap-2 text-slate-300 font-bold text-sm">
-            <span className="text-cyan-400">⏱</span> ROUND {room.currentRound} / {room.config.rounds}
-          </div>
-          <Timer turn={room.turn} />
-        </div>
-
-        {/* Immersive Mobile Layout */}
-        <div className="relative z-10 flex-1 flex flex-col md:flex-row min-h-0 w-full max-w-5xl mx-auto md:p-4 gap-4">
-          
-          {/* Main Action Area */}
-          <div className="shrink-0 p-4 md:p-0 md:w-1/2 flex flex-col justify-end md:justify-center order-1">
-            <GlassCard className="w-full flex flex-col items-center text-center">
-              {isMyTurn ? (
-                <div className="w-full space-y-4 animate-in fade-in zoom-in duration-300">
-                  <div className="bg-amber-500/10 text-amber-400 border border-amber-500/30 px-6 py-2 rounded-full font-black tracking-widest text-lg inline-block">YOUR TURN</div>
-                  <p className="text-slate-400 text-sm">Give a clue related to the word.</p>
-                  
-                  <div className="relative">
-                    <textarea 
-                      className="w-full bg-[#0F172A] border border-slate-700 rounded-xl p-4 text-white font-bold text-lg focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition-all resize-none h-24"
-                      placeholder="Type your clue here..."
-                      value={clue}
-                      onChange={e => setClue(e.target.value)}
-                      maxLength={100}
-                    />
-                    <div className="absolute bottom-3 right-3 text-xs text-slate-500 font-mono">{clue.length}/100</div>
-                  </div>
-                  
-                  <NeonButton onClick={() => { socket.emit('submit_clue', clue); setClue(''); }} disabled={!clue.trim() || room.turn?.turnResolved}>
-                    Submit Clue
-                  </NeonButton>
-                </div>
-              ) : (
-                <div className="py-6 space-y-3 w-full">
-                  <div className="flex items-center justify-center gap-3">
-                    <div className="w-10 h-10 bg-[#0F172A] rounded-full flex items-center justify-center text-xl border border-slate-700 shadow-inner">👤</div>
-                    <div className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 px-4 py-1 rounded-full font-bold tracking-widest text-sm inline-block">
-                      {activePlayer?.name}'S TURN
-                    </div>
-                  </div>
-                  <p className="text-slate-500 text-sm">Waiting for them to submit a clue...</p>
-                </div>
-              )}
-            </GlassCard>
-          </div>
-
-          {/* Chat Feed */}
-          <div className="flex-1 min-h-0 p-4 pt-0 md:p-0 md:w-1/2 order-2">
-            <ChatFeed chat={room.chat} />
-          </div>
-        </div>
-      </div>
-    );
+    return <RoundCluesView room={room} />;
   }
 
   if (room.state === 'VOTING') {
-    const hasVoted = room.votesSubmitted.includes(socket.playerId);
-    const [voteFor, setVoteFor] = useState('');
-    const [confidence, setConfidence] = useState(50);
-    
-    if (hasVoted) return (
-      <div className="min-h-screen bg-[#0B0C10] flex items-center justify-center p-6 text-center relative">
-        <CosmicBackground variant="success" />
-        <GlassCard className="w-full max-w-sm space-y-6 z-10 py-10">
-          <div className="w-20 h-20 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center text-4xl border border-emerald-500/30 mx-auto">✓</div>
-          <h2 className="text-2xl font-black text-white">VOTE SUBMITTED</h2>
-          <p className="text-slate-400 font-bold text-sm">Waiting for other players...</p>
-        </GlassCard>
-      </div>
-    );
-
-    return (
-      <div className="h-[100dvh] bg-[#0B0C10] flex flex-col relative overflow-hidden">
-        <CosmicBackground variant="danger" />
-        
-        <div className="relative z-10 flex justify-between items-center p-4 bg-[#121826]/80 backdrop-blur border-b border-[#1E293B] shrink-0">
-          <div className="text-slate-400 font-bold text-sm tracking-widest">ROUND {room.currentRound} / {room.config.rounds}</div>
-          <Timer turn={room.turn} />
-        </div>
-
-        <div className="relative z-10 flex-1 overflow-y-auto p-4 flex flex-col items-center">
-          <div className="w-full max-w-md space-y-6">
-            <div className="text-center py-4">
-              <h2 className="text-xl md:text-2xl font-black text-slate-300 mb-2 uppercase tracking-[0.3em]">Who do you trust?</h2>
-              <p className="text-slate-500 text-xs tracking-widest uppercase">Select your accusation</p>
-            </div>
-            
-            <GlassCard className="!p-4 bg-[#050505]/90 border-slate-800">
-              <div className="space-y-3">
-                {room.players.map(p => {
-                  if (p.id === socket.playerId) return null;
-                  const isSelected = voteFor === p.id;
-                  return (
-                    <button key={p.id} onClick={() => { SFX.turn(); setVoteFor(p.id); }}
-                      className={`w-full flex items-center justify-between p-5 rounded-xl border transition-all text-left group ${isSelected ? 'bg-rose-500/10 border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.1)]' : 'bg-[#0B0C10] border-slate-800 hover:border-slate-600'}`}>
-                      <div className="flex flex-col">
-                        <span className={`font-black text-xl tracking-wide ${isSelected ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'}`}>{p.name}</span>
-                        {isSelected && <span className="text-rose-500 text-[10px] font-bold tracking-[0.3em] uppercase mt-1 animate-pulse">Accusation</span>}
-                      </div>
-                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected ? 'border-rose-500' : 'border-slate-700'}`}>
-                        {isSelected && <div className="w-3 h-3 bg-rose-500 rounded-full"></div>}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {room.currentRound >= 2 && voteFor && (
-                <div className="mt-8 pt-8 border-t border-slate-800 animate-in fade-in slide-in-from-bottom-2">
-                  <div className="text-center mb-6">
-                    <label className="text-slate-400 font-bold text-xs uppercase tracking-[0.2em]">How confident are you?</label>
-                  </div>
-                  
-                  <div className="relative px-2 mb-8">
-                    <input type="range" min="50" max="100" step="10" value={confidence} onChange={e => { SFX.tick(); setConfidence(e.target.value); }}
-                      className="w-full accent-cyan-500 h-1 bg-slate-800 rounded-full appearance-none cursor-pointer relative z-10" />
-                    <div className="flex justify-between absolute left-0 w-full px-2 top-4 pointer-events-none text-[10px] font-bold text-slate-600">
-                      <span>50</span><span>60</span><span>70</span><span>80</span><span>90</span><span>100</span>
-                    </div>
-                  </div>
-                  
-                  <div className="text-center">
-                    <span className={`text-sm font-black tracking-[0.3em] uppercase ${confidence < 70 ? 'text-slate-400' : confidence < 90 ? 'text-cyan-400' : 'text-rose-400'}`}>
-                      {confidence < 70 ? 'Uncertain' : confidence < 90 ? 'Confident' : 'Certain'}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </GlassCard>
-
-            <div className="pt-2 pb-8 w-full">
-              <NeonButton onClick={() => { SFX.alert(); socket.emit('submit_vote', { voteFor, confidence: Number(confidence) }); }} disabled={!voteFor} variant="danger">
-                Confirm
-              </NeonButton>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <VotingView room={room} />;
   }
 
   if (room.state === 'ROUND_WAIT') {
@@ -905,7 +886,6 @@ function PlayerView({ room, privateRole, onAcknowledgeRole }) {
     return (
       <div className="min-h-screen bg-[#0B0C10] p-4 md:p-8 flex flex-col items-center justify-center relative">
         <CosmicBackground variant={isWinner ? "success" : "default"} />
-        
         <div className="z-10 w-full max-w-sm space-y-12 mt-8 animate-in slide-in-from-bottom-8 duration-1000">
           <div className="text-center space-y-4">
             <div className={`text-6xl md:text-7xl font-black tracking-tighter ${isWinner ? 'text-amber-400 drop-shadow-[0_0_20px_rgba(251,191,36,0.3)]' : 'text-slate-300'}`}>
@@ -913,13 +893,11 @@ function PlayerView({ room, privateRole, onAcknowledgeRole }) {
             </div>
             <div className="text-slate-500 font-bold tracking-[0.4em] text-xs uppercase">Total Points</div>
           </div>
-          
           <div className="text-center">
             <h1 className={`text-xl font-black tracking-[0.2em] uppercase ${isWinner ? 'text-emerald-400' : 'text-rose-400'}`}>
               {isWinner ? 'YOU SAW THROUGH THE LIE' : 'DECEPTION PREVAILED'}
             </h1>
           </div>
-          
           <GlassCard className="!p-0 overflow-hidden bg-[#050505]/90 border-slate-800">
             <div className="p-4 border-b border-slate-800 text-center">
               <span className="text-slate-400 font-bold tracking-[0.3em] uppercase text-[10px]">Final Standing</span>
@@ -939,7 +917,6 @@ function PlayerView({ room, privateRole, onAcknowledgeRole }) {
               })}
             </div>
           </GlassCard>
-          
           <div className="text-center pt-8 text-slate-500 font-bold tracking-[0.3em] text-[10px] uppercase animate-pulse">
             Wait for host
           </div>
@@ -948,11 +925,13 @@ function PlayerView({ room, privateRole, onAcknowledgeRole }) {
     );
   }
 
-  return null;
+  return (
+    <div className="min-h-screen bg-[#0B0C10] flex items-center justify-center p-6 text-center text-white">
+      <div className="animate-pulse">Loading game state...</div>
+    </div>
+  );
 }
 
-// Main App component
-// ChatFeed Component (Evidence Board Style)
 function ChatFeed({ chat }) {
   const endRef = useRef(null);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chat]);
@@ -1034,29 +1013,15 @@ export default function App() {
     });
 
     socket.on('sync_state', (state) => {
-      setRoom(prev => {
-        // preserve roleAcknowledged state
-        if (prev) {
-           const me = prev.players.find(p => p.id === socket.playerId);
-           if (me) {
-             const newMe = state.players.find(p => p.id === socket.playerId);
-             if (newMe) newMe.roleAcknowledged = me.roleAcknowledged;
-           }
-        }
-        return state;
-      });
+      if (state.turn && state.turn.remainingMs != null) {
+        state.turn.deadline = Date.now() + state.turn.remainingMs;
+      }
+      setRoom(state);
       setError(null);
     });
 
     socket.on('private_role', (data) => {
       setPrivateRole(data);
-      setRoom(prev => {
-        if (!prev) return prev;
-        const newRoom = {...prev};
-        const me = newRoom.players.find(p => p.id === socket.playerId);
-        if (me) me.roleAcknowledged = false;
-        return newRoom;
-      });
     });
 
     socket.on('error', (err) => setError(err));
@@ -1084,12 +1049,7 @@ export default function App() {
 
   const handleAcknowledgeRole = () => {
     SFX.turn();
-    setRoom(prev => {
-      const newRoom = {...prev};
-      const me = newRoom.players.find(p => p.id === socket.playerId);
-      if (me) me.roleAcknowledged = true;
-      return newRoom;
-    });
+    socket.emit('acknowledge_role');
   };
 
   return (

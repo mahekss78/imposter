@@ -90,17 +90,34 @@ io.on('connection', (socket) => {
       if (p.active) io.to(p.socketId).emit('private_role', { role: p.role, word: p.word, wordDescription: p.wordDescription });
     }
     
-    room.state = 'ROUND_CLUES';
-    
-    room.order = Array.from(room.players.entries())
-      .filter(([id, p]) => p.active)
-      .map(([id]) => id)
-      .sort(() => Math.random() - 0.5);
-      
-    startNextTurn(room);
+    for (const p of room.players.values()) p.roleAcknowledged = false;
+    room.state = 'ROLE_REVEAL';
+    io.to(room.id).emit('sync_state', getRoomState(room));
   });
 
   
+  
+  socket.on('acknowledge_role', () => {
+    const room = getRoom(socket.roomId);
+    if (!room || room.state !== 'ROLE_REVEAL') return;
+    const player = room.players.get(socket.playerId);
+    if (!player || player.socketId !== socket.id) return;
+
+    player.roleAcknowledged = true;
+    io.to(room.id).emit('sync_state', getRoomState(room));
+
+    const activePlayers = Array.from(room.players.values()).filter(p => p.active);
+    if (activePlayers.every(p => p.roleAcknowledged)) {
+      room.state = 'ROUND_CLUES';
+      room.chat.push({ type: 'system', text: 'ROUND ' + room.currentRound + ' STARTED', round: room.currentRound });
+      room.order = Array.from(room.players.entries())
+        .filter(([id, p]) => p.active)
+        .map(([id]) => id)
+        .sort(() => Math.random() - 0.5);
+      startNextTurn(room);
+    }
+  });
+
   socket.on('player_ready_for_turn', () => {
     const room = getRoom(socket.roomId);
     if (!room || room.state !== 'ROUND_CLUES' || !room.turn) return;
@@ -129,7 +146,7 @@ io.on('connection', (socket) => {
     room.turn.turnResolved = true;
     clearTimeout(room.turn.timeoutId);
     
-    room.chat.push({ senderName: player.name, text: clueText });
+    room.chat.push({ type: 'clue', round: room.currentRound, senderName: player.name, text: clueText });
     startNextTurn(room);
   });
 
@@ -185,7 +202,7 @@ function getRoomState(room) {
     state: room.state,
     currentRound: room.currentRound,
     turn: room.turn ? { activePlayerId: room.turn.activePlayerId, remainingMs, isWaitingForReady: !!room.turn.isWaitingForReady } : null,
-    players: Array.from(room.players.entries()).map(([id, p]) => ({ id, name: p.name, active: p.active })),
+    players: Array.from(room.players.entries()).map(([id, p]) => ({ id, name: p.name, active: p.active, roleAcknowledged: p.roleAcknowledged })),
     chat: room.chat,
     config: room.config,
     leaderboard: room.state === 'GAME_END' ? room.leaderboard : null,
@@ -199,7 +216,7 @@ function startNextTurn(room) {
     startVoting(room);
     return;
   }
-  const isFirstTurnOfRound = (room.chat.length === 0);
+  const isFirstTurnOfRound = (room.chat.filter(c => c.type === 'clue' && c.round === room.currentRound).length === 0);
   if (isFirstTurnOfRound) {
     room.turn = {
       activePlayerId: nextPlayerId, deadline: null, turnResolved: false, timeoutId: null, isWaitingForReady: true
@@ -220,7 +237,8 @@ function startNextTurn(room) {
 }
 
 function startVoting(room) {
-  room.state = 'VOTING';
+    room.state = 'VOTING';
+    room.chat.push({ type: 'system', text: 'VOTING STARTED', round: room.currentRound });
   const duration = 45000;
   room.turn = {
     activePlayerId: null, deadline: Date.now() + duration, turnResolved: false,
@@ -234,7 +252,8 @@ function startVoting(room) {
 }
 
 function endVoting(room) {
-  calculateScoring(room);
+    room.chat.push({ type: 'system', text: 'VOTING ENDED', round: room.currentRound });
+    calculateScoring(room);
   
   if (room.currentRound >= room.config.rounds) {
     room.state = 'GAME_END';
@@ -251,8 +270,8 @@ function endVoting(room) {
     io.to(room.id).emit('sync_state', getRoomState(room));
     setTimeout(() => {
       room.currentRound++;
-      room.chat = [];
-      room.order = Array.from(room.players.entries())
+        room.chat.push({ type: 'system', text: 'ROUND ' + room.currentRound + ' STARTED', round: room.currentRound });
+        room.order = Array.from(room.players.entries())
         .filter(([id, p]) => p.active)
         .map(([id]) => id)
         .sort(() => Math.random() - 0.5);
